@@ -64,7 +64,7 @@ conditions = [poke_df['Type2'] == '', poke_df['Type2'] != '']
 values = [poke_df['Type1'], poke_df['Type1'] + '|' + poke_df['Type2']]
 
 # Generates training and testing datasets for Pokemon images (X) and types (y)
-def get_images_df(gen_folder_path: Path):
+def get_test_and_train_datasets(gen_folder_path: Path):
   pre_gen5_poke_df = poke_df[poke_df['Num'] < 650] # Filter Pokemon from gen5 and earlier
   
   png_files = glob.glob(str(gen_folder_path) + "/**/*.png", recursive=True) # Generate list of png file path names
@@ -101,11 +101,11 @@ def get_images_df(gen_folder_path: Path):
   return X_train, X_val, y_train, y_val
 
 # Create training and validation datasets for each generation of Pokemon images
-X_train_gen1, X_val_gen1, y_train_gen1, y_val_gen1 = get_images_df(GEN1_PATH)
-X_train_gen2, X_val_gen2, y_train_gen2, y_val_gen2 = get_images_df(GEN2_PATH)
-X_train_gen3, X_val_gen3, y_train_gen3, y_val_gen3 = get_images_df(GEN3_PATH)
-X_train_gen4, X_val_gen4, y_train_gen4, y_val_gen4 = get_images_df(GEN4_PATH)
-X_train_gen5, X_val_gen5, y_train_gen5, y_val_gen5 = get_images_df(GEN5_PATH)
+X_train_gen1, X_val_gen1, y_train_gen1, y_val_gen1 = get_test_and_train_datasets(GEN1_PATH)
+X_train_gen2, X_val_gen2, y_train_gen2, y_val_gen2 = get_test_and_train_datasets(GEN2_PATH)
+X_train_gen3, X_val_gen3, y_train_gen3, y_val_gen3 = get_test_and_train_datasets(GEN3_PATH)
+X_train_gen4, X_val_gen4, y_train_gen4, y_val_gen4 = get_test_and_train_datasets(GEN4_PATH)
+X_train_gen5, X_val_gen5, y_train_gen5, y_val_gen5 = get_test_and_train_datasets(GEN5_PATH)
 
 # Combine all generations into one training and one validation dataset
 X_train = pd.concat([X_train_gen1, X_train_gen2, X_train_gen3, X_train_gen4, X_train_gen5], ignore_index=True)
@@ -125,5 +125,7 @@ X_val = X_val[q]
 y_val = y_val[q]
 X_val.index = list(range(len(X_val)))
 y_val.index = list(range(len(y_val)))
+
+
 
 
