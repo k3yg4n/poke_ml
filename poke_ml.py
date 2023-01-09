@@ -297,5 +297,5 @@ history = model.fit(train_ds,
 
 # After being trained, this model is exported to the models directory
 t = datetime.now().strftime("%Y%m%d")
-MODEL_EXPORT_PATH = "./models/soft-f1_{}".format(t)
+MODEL_EXPORT_PATH = "./models/my_model"
 model.save(MODEL_EXPORT_PATH)
