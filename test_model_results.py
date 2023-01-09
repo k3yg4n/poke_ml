@@ -54,8 +54,8 @@ def show_prediction(name, model):
   prediction = prediction[prediction==1].index.values
 
   # Predict each Pokemon's type
-  print(f'\n\n{name} +'
-        f'Type\n{type}'
+  print(f'\n\n{name}\n'
+        f'Type\n{types}'
         f'\n\nPrediction\n{list(prediction)}\n')
 
 for pokemon in poke_to_test:
