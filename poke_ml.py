@@ -17,17 +17,18 @@ import seaborn as sns
 import tensorflow as tf
 from tensorflow import keras
 import tensorflow_hub as hub
+import keras.utils as image
 
-from keras.preprocessing import image
 from PIL import Image
 from sklearn.preprocessing import MultiLabelBinarizer
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, learning_curve
 from sklearn.calibration import calibration_curve
 from keras import layers
 
 from utils import *
 import glob
 from pathlib import Path
+from datetime import datetime
 
 # File path constants
 GEN1_PATH = Path("./sprites/sprites/pokemon/versions/generation-i")
@@ -132,6 +133,17 @@ def macro_f1(y, y_hat, thresh=0.5):
   macro_f1 = tf.reduce_mean(f1)
   return macro_f1
 
+def get_pokemon_dataframe():
+  poke_df = pd.read_csv("pokemon.csv")
+  poke_df = poke_df.rename(columns={"#": "Num", "Type 1": "Type1", "Type 2": "Type2"})
+  poke_df = poke_df.drop_duplicates(subset=['Num'])
+  poke_df = poke_df.fillna(value={"Type2": ""})
+  poke_df['Types'] = poke_df['Type1'] + "," + poke_df['Type2']
+  poke_df['Types'] = poke_df['Types'].apply(
+    lambda types_entry: [l for l in str(types_entry).split(',') if l not in [""]]
+    ) # Remove comma if types entry only has one type
+  return poke_df
+
 # Pandas output options
 pd.set_option('display.max_colwidth',1000)
 
@@ -140,16 +152,7 @@ warnings.filterwarnings('ignore')
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
 
 # Create dataframe from .csv and perform data cleaning
-poke_df = pd.read_csv("pokemon.csv")
-
-poke_df = poke_df.rename(columns={"#": "Num", "Type 1": "Type1", "Type 2": "Type2"})
-poke_df = poke_df.drop_duplicates(subset=['Num'])
-poke_df = poke_df.fillna(value={"Type2": ""})
-poke_df['Types'] = poke_df['Type1'] + "," + poke_df['Type2']
-poke_df['Types'] = poke_df['Types'].apply(
-  lambda types_entry: [l for l in str(types_entry).split(',') if l not in [""]]
-  ) # Remove comma if types entry only has one type
-
+poke_df = get_pokemon_dataframe()
 
 # A list of bools to determine if a Pokemon entry has a second type
 conditions = [poke_df['Type2'] == '', poke_df['Type2'] != '']
@@ -291,3 +294,8 @@ model.compile(
 history = model.fit(train_ds,
                     epochs=EPOCHS,
                     validation_data=create_dataset(X_val, y_val_bin))
+
+# After being trained, this model is exported to the models directory
+t = datetime.now().strftime("%Y%m%d")
+MODEL_EXPORT_PATH = "./models/soft-f1_{}".format(t)
+model.save(MODEL_EXPORT_PATH)
