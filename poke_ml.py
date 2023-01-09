@@ -36,6 +36,102 @@ GEN3_PATH = Path("./sprites/sprites/pokemon/versions/generation-iii")
 GEN4_PATH = Path("./sprites/sprites/pokemon/versions/generation-iv")
 GEN5_PATH = Path("./sprites/sprites/pokemon/versions/generation-v")
 
+# Other constants
+IMG_SIZE = 224 # Width and height of normalized images to match input format of model
+CHANNELS = 3 # Keep RGB channels to match input format of model
+BATCH_SIZE = 256 # Large enough to store an F1 score (measures accuracy)
+AUTOTUNE = tf.data.experimental.AUTOTUNE # Adapt preprocessing and prefetching dynamically
+SHUFFLE_BUFFER_SIZE = 1024 # Shuffle training data by a chunk of 1024 observations
+LR = 1e-5 # The learning rate. Kept small because it is used for transfer learning
+EPOCHS = 60 # Repetitions for the model's training
+
+def get_normalized_images_and_labels(filepath, label):
+  """Returns a tuple of normalized images array and labels array
+  Arguments:
+    filepath: string representing path to the image
+    label: one dimensional array of size NUM_LABELS
+  """
+  # Read image from filepath
+  image_string = tf.io.read_file(filepath)
+  # Decode the image into a dense vector
+  image_decoded = tf.image.decode_jpeg(image_string, channels=CHANNELS)
+  # Resize the image to predefined dimensions
+  image_resized = tf.image.resize(image_decoded, [IMG_SIZE, IMG_SIZE])
+  # Normalize the image from [0, 255] to [0.0, 1.0]
+  image_normalized = image_resized / 255.0
+  return image_normalized, label
+
+def create_dataset(filenames, labels, is_training=True):
+  """Load and parse a dataset
+  Arguments:
+    filenames: list of image paths
+    labels: numpy array of shape (BATCH_SIZE, NUM_LABELS)
+    is_training: boolean to indicate training dataset
+  """
+
+  # Create a dataset of file paths and labels
+  path_and_label_dataset = tf.data.Dataset.from_tensor_slices((filenames, labels))
+  # Parse and preprocess observations (values/rows)
+  path_and_label_dataset = path_and_label_dataset.map(get_normalized_images_and_labels, num_parallel_calls=AUTOTUNE)
+
+  if is_training:
+    # Training set is a smaller dataset, so only load it once and keep it in memory
+    path_and_label_dataset = path_and_label_dataset.cache()
+    # Shuffle the data each buffer size
+    path_and_label_dataset = path_and_label_dataset.shuffle(buffer_size=SHUFFLE_BUFFER_SIZE)
+
+  # Batch (process/group) the data into groups of BATCH_SIZE for multiple steps
+  path_and_label_dataset = path_and_label_dataset.batch(BATCH_SIZE)
+  # Fetch batches in the background while the model is training itself
+  path_and_label_dataset = path_and_label_dataset.prefetch(buffer_size=AUTOTUNE)
+
+  return path_and_label_dataset
+
+# The loss function for our model
+def macro_soft_f1(y, y_hat):
+    """Compute the macro soft F1-score as a cost.
+    Average (1 - soft-F1) across all labels.
+    Use probability values instead of binary predictions.
+    
+    Args:
+        y (int32 Tensor): targets array of shape (BATCH_SIZE, N_LABELS)
+        y_hat (float32 Tensor): probability matrix of shape (BATCH_SIZE, N_LABELS)
+        
+    Returns:
+        cost (scalar Tensor): value of the cost function for the batch
+    """
+    
+    y = tf.cast(y, tf.float32)
+    y_hat = tf.cast(y_hat, tf.float32)
+    tp = tf.reduce_sum(y_hat * y, axis=0)
+    fp = tf.reduce_sum(y_hat * (1 - y), axis=0)
+    fn = tf.reduce_sum((1 - y_hat) * y, axis=0)
+    soft_f1 = 2*tp / (2*tp + fn + fp + 1e-16)
+    cost = 1 - soft_f1 # reduce 1 - soft-f1 in order to increase soft-f1
+    macro_cost = tf.reduce_mean(cost) # average on all labels
+    
+    return macro_cost
+
+# The metric for our model
+def macro_f1(y, y_hat, thresh=0.5):
+  """Compute the macro F1-score on a batch of observations (average F1 across labels)
+  
+  Args:
+      y (int32 Tensor): labels array of shape (BATCH_SIZE, N_LABELS)
+      y_hat (float32 Tensor): probability matrix from forward propagation of shape (BATCH_SIZE, N_LABELS)
+      thresh: probability value above which we predict positive
+      
+  Returns:
+      macro_f1 (scalar Tensor): value of macro F1 for the batch
+  """
+  y_pred = tf.cast(tf.greater(y_hat, thresh), tf.float32)
+  tp = tf.cast(tf.math.count_nonzero(y_pred * y, axis=0), tf.float32)
+  fp = tf.cast(tf.math.count_nonzero(y_pred * (1 - y), axis=0), tf.float32)
+  fn = tf.cast(tf.math.count_nonzero((1 - y_pred) * y, axis=0), tf.float32)
+  f1 = 2*tp / (2*tp + fn + fp + 1e-16)
+  macro_f1 = tf.reduce_mean(f1)
+  return macro_f1
+
 # Pandas output options
 pd.set_option('display.max_colwidth',1000)
 
@@ -126,6 +222,72 @@ y_val = y_val[q]
 X_val.index = list(range(len(X_val)))
 y_val.index = list(range(len(y_val)))
 
+# Binarize our types using one-hot encoding 
+print("Labels:")
+mlb = MultiLabelBinarizer()
+mlb.fit(y_train)
 
+NUM_LABELS = len(mlb.classes_)
+for(i, label) in enumerate(mlb.classes_):
+  print(f"{i} - {label}")
 
+# Encode targets (labels) to multi-label-binarizer format
+y_train_bin = mlb.transform(y_train)
+y_val_bin = mlb.transform(y_val)
 
+# Print 3 examples of Pokemon image and binary labels
+for i in range(3):
+    print(X_train[i], y_train_bin[i])
+
+# Create datasets such that images and labels are formatted 
+# in a manner that TensorFlow can process.
+train_ds = create_dataset(X_train, y_train_bin)
+val_ds = create_dataset(X_val, y_val_bin)
+
+# Create and train our model.
+#   Transfer learning is used to improve performance and decrease
+#   training time. It consists of using a pre-trained model on 
+#   a much larger dataset (not necessarily related to our own)
+#   to identify classes in a new context.
+
+# Import a pre-trained computer vision model for feature extraction
+feature_extractor_url = "https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/feature_vector/4"
+
+# Dense hidden layer (in between input and output layer where neurons take in weighted inputs
+# generated using the feature extractor and produce an output through and activiation function)
+feature_extractor_layer = hub.KerasLayer(feature_extractor_url, input_shape=(IMG_SIZE,IMG_SIZE,CHANNELS))
+
+# Prevent the parameters of the pre-trained model from being adjusted during training
+feature_extractor_layer.trainable = False
+
+# Create sequential model (a plain stack of layers which each layer has one input tensor)
+# and one output tensor.
+
+# The relu function is a piecewise linear function thay outputs the input if it is positive,
+# otherwise outputs 0. It transforms the summed weighted input from the node into the activation
+# of the node.
+
+# The sigmoid function is known as the squashing function as its domain is the set of all
+# real numbers and its range is (0,1). Thus, the output of the function is always between 0
+# and 1, regardless if the number is very positive or very negative.
+
+model = tf.keras.Sequential([
+  feature_extractor_layer, # The first layer is the feature extractor layer
+  layers.Dense(1024, activation='relu', name='hidden_layer'), # The second layer has 1024 neurons with the relu(recitifier) activiation function
+  layers.Dense(NUM_LABELS, activation='sigmoid', name='output') # The third layer has NUM_LABELS units with the sigmoid activation function 
+])
+
+model.summary()
+
+# Optimizer is the function that adapts the neural network after an epoch's results are analyzed
+# Loss is the function that determines how well a specific prediction has performed. Used alongside optimizer in training.
+# Metrics is a function used to judge the performance of a model (but its results are not used in training)
+
+model.compile(
+  optimizer=tf.keras.optimizers.Adam(learning_rate=LR),
+  loss=macro_soft_f1,
+  metrics=[macro_f1])
+
+history = model.fit(train_ds,
+                    epochs=EPOCHS,
+                    validation_data=create_dataset(X_val, y_val_bin))
