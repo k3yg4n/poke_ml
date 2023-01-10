@@ -1,3 +1,5 @@
+# Run to test the model once it is generated and trained in poke_ml.py
+
 from pathlib import Path
 from tensorflow import keras
 from poke_ml import MODEL_EXPORT_PATH, get_pokemon_dataframe, IMG_SIZE, CHANNELS
@@ -26,7 +28,9 @@ poke_to_test = [
   "Sylveon",
   "Chespin",
   "Froakie",
-  "Fletchling"
+  "Fletchling",
+  "Pikachu",
+  "Charizard"
 ]
 
 # Test the model.

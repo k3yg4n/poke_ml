@@ -1,10 +1,3 @@
-# A convolutional neural network which can predict if a Pokemon's types
-# Using Pokemon sprites from multiple generations and games, in addition to back 
-# sprites, shiny variants, and female Pokemon as a built-in way of augmenting the 
-# size of our training data. Through this, our training dataset consists of >15,000 images.
-
-# Change to only predict one type
-
 import logging
 import os
 import warnings
