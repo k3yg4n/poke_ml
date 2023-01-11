@@ -27,4 +27,5 @@ This is a multi-label classification scenario as each Pokemon can have one or tw
 ## Acknowledgements
 - Pokemon Sprites/Images are sourced from the PokeAPI repository: https://github.com/PokeAPI/sprites.
 - Kaggle dataset containing each Pokemon's type and number in the national Pokedex: https://www.kaggle.com/datasets/abcsds/pokemon.
+- Article detailing Multi-Label Image Classification in TensorFlow 2.0 and providing code examples: https://towardsdatascience.com/multi-label-image-classification-in-tensorflow-2-0-7d4cf8a4bc72.
 
