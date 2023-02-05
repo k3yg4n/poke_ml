@@ -82,8 +82,53 @@ def create_dataset(filenames, labels, is_training=True):
 
   return path_and_label_dataset
 
-# The loss function for our model, which determines how well a specific prediction has performed and is used alongside optimizer in training. -- treated like a blackbox 
-# SOURCED FROM: https://towardsdatascience.com/the-unknown-benefits-of-using-a-soft-f1-loss-in-classification-systems-753902c0105d
+# The metric (evaluation function) for our model. Used to evaluate the perfomance of our classification model -- mostly treated like a blackbox
+# The F1 score is the harmonic mean (average calculated by dividing # of observations by the reciprocal of each number in the series) of Presicion and Recall (see https://en.wikipedia.org/wiki/Confusion_matrix).
+# Precision is the number of true positive results (all predictions correct), divided by the number of all positive results (some predictions correct), including those not identified completely correctly.
+# Recall is the number of true positive results divided by the number of all samples that should have been identified as positive. 
+# This function computes as many F1-scores as the total number of labels (18 in our case, for the number of types), and then averages them to get a Macro F1-score. 
+# It is reasonable to take the average over all labels because they each have the same importance in the multi-label classification task (each is a distinct type).
+# SOURCED FROM: https://github.com/ashrefm/multi-label-soft-f1
+def macro_f1(y, y_hat, thresh=0.5):
+  """Compute the macro F1-score on a batch of observations (average F1 across labels)
+  
+  Args:
+      y (int32 Tensor): labels array of shape (BATCH_SIZE, N_LABELS)
+      y_hat (float32 Tensor): probability matrix from forward propagation of shape (BATCH_SIZE, N_LABELS)
+      thresh: probability value above which we predict positive
+      
+  Returns:
+      macro_f1 (scalar Tensor): value of macro F1 for the batch
+  """
+  y_pred = tf.cast(tf.greater(y_hat, thresh), tf.float32)
+  tp = tf.cast(tf.math.count_nonzero(y_pred * y, axis=0), tf.float32)
+  fp = tf.cast(tf.math.count_nonzero(y_pred * (1 - y), axis=0), tf.float32)
+  fn = tf.cast(tf.math.count_nonzero((1 - y_pred) * y, axis=0), tf.float32)
+  f1 = 2*tp / (2*tp + fn + fp + 1e-16)
+  macro_f1 = tf.reduce_mean(f1)
+  return macro_f1
+
+# The loss function for our model, which determines how well a specific prediction has performed and is used alongside optimizer in training. -- mostly treated like a blackbox 
+# Measures the model error on training batches and updates weights accordingly.
+# Must be differentiable to backpropogate error in the neural network and update weights accordingly. (in each forward pass through a network, backpropogation performs a backwards pass while adjusting parameters).
+# However, F1-score is not differentiable and so it cannot be used as a loss function because it needs binary predictions to be measured (0 and 1). We make the F1-score differentiable by computing the number of 
+# true positives, true negatives, false positives, false negatives as a continous sum of likelihood values rather than discrete integer values by snapping inputs above a threshold to 1 and all others to 0. 
+# This is accomplished by using probabilities without applying any threshold. 
+# EX1:  
+# If the target is 1 for a movie being Action and the model prediction for Action is 0.8, it will count as:
+# 0.8 x 1 = 0.8 TP (because the target is 1 and the model predicted 1 with 0.8 chance)
+# 0.2 x 1 = 0.2 FN (because the target is 1 and the model predicted 0 with 0.2 chance)
+# 0.8 x 0 = 0 FP (because the target is 1 not 0, condition negative is not valid)
+# 0.2 x 0 = 0 TN (because the target is 1 not 0, condition negative is not valid)
+
+# EX 2: If the target is 0 for a movie being Action and the model prediction for Action is 0.8, it will count as:
+# 0.8 x 0 = 0 TP (because the target is 0 not 1, condition positive is not valid)
+# 0.2 x 0 = 0 FN (because the target is 0 not 1, condition positive is not valid)
+# 0.8 x 1 = 0.8 FP (because the target is 0 and the model predicted 1 with 0.8 chance)
+# 0.2 x 1 = 0.2 TN (because the target is 0 and the model predicted 0 with 0.2 chance)
+
+# This version of F1-score a soft-F1-score and it can be used as a loss function. 
+# SOURCED FROM: https://github.com/ashrefm/multi-label-soft-f1
 def macro_soft_f1(y, y_hat):
     """Compute the macro soft F1-score as a cost.
     Average (1 - soft-F1) across all labels.
@@ -107,27 +152,6 @@ def macro_soft_f1(y, y_hat):
     macro_cost = tf.reduce_mean(cost) # average on all labels
     
     return macro_cost
-
-# The metric for our model. Used to evaluate the perfomance of our classification model -- treated like a blackbox
-# SOURCED FROM: https://towardsdatascience.com/the-unknown-benefits-of-using-a-soft-f1-loss-in-classification-systems-753902c0105d
-def macro_f1(y, y_hat, thresh=0.5):
-  """Compute the macro F1-score on a batch of observations (average F1 across labels)
-  
-  Args:
-      y (int32 Tensor): labels array of shape (BATCH_SIZE, N_LABELS)
-      y_hat (float32 Tensor): probability matrix from forward propagation of shape (BATCH_SIZE, N_LABELS)
-      thresh: probability value above which we predict positive
-      
-  Returns:
-      macro_f1 (scalar Tensor): value of macro F1 for the batch
-  """
-  y_pred = tf.cast(tf.greater(y_hat, thresh), tf.float32)
-  tp = tf.cast(tf.math.count_nonzero(y_pred * y, axis=0), tf.float32)
-  fp = tf.cast(tf.math.count_nonzero(y_pred * (1 - y), axis=0), tf.float32)
-  fn = tf.cast(tf.math.count_nonzero((1 - y_pred) * y, axis=0), tf.float32)
-  f1 = 2*tp / (2*tp + fn + fp + 1e-16)
-  macro_f1 = tf.reduce_mean(f1)
-  return macro_f1
 
 def get_pokemon_dataframe():
   """Returns a pandas dataframe from the pokemon.csv file"""
@@ -239,7 +263,7 @@ for(i, label) in enumerate(mlb.classes_):
 y_train_bin = mlb.transform(y_train)
 y_val_bin = mlb.transform(y_val)
 
-# Print 3 examples of Pokemon png path and its associated and binary labels
+# Print 3 examples of Pokemon png path and their associated binary targets (type array)
 for i in range(3):
     print(X_train[i], y_train_bin[i])
 
@@ -302,7 +326,7 @@ history = model.fit(train_ds,
                     epochs=EPOCHS,
                     validation_data=create_dataset(X_val, y_val_bin))
 
-# After being trained, this model is exported to the models directory
+# After being trained, this model is exported to the models directory where it can be imported into test_model_results.py
 t = datetime.now().strftime("%Y%m%d")
 MODEL_EXPORT_PATH = "./models/my_model"
 model.save(MODEL_EXPORT_PATH)
