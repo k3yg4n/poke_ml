@@ -31,11 +31,11 @@ IMG_SIZE = 224 # Width and height of normalized images. Used to match input form
 CHANNELS = 3 # Keep R,G, and B channels to match input format of model. Colour is important in distungishing type.
 BATCH_SIZE = 256 # Number of samples processed before the model is updated, doing this saves memory. Large enough to store an F1 score, which measures accuracy
 EPOCHS = 60 # Number of passes through entire data set, with dataset divided into batches
-AUTOTUNE = tf.data.experimental.AUTOTUNE # Adapt preprocessing and prefetching dynamically/automatically
+AUTOTUNE = tf.data.experimental.AUTOTUNE # Adapt preprocessing and prefetching dynamically/automatically -> helping with tasks such as reducing CPU idle time
 SHUFFLE_BUFFER_SIZE = 1024 # Used to shuffle training data by 1024 observations
 LR = 1e-5 # The learning rate, which determines how much to shift the model's weights depending on results. Kept small because it is used for transfer learning, 
           # because we are importing a pre-trained computer vision model for feature extraction based on a much larger dataset (not necessarily related to our own)
-          # to use as a starting point for our model.
+          # to use as a starting point for our model, applying it to a more specific task. 
 
 
 def get_normalized_images_and_labels(filepath, label):
@@ -83,7 +83,7 @@ def create_dataset(filenames, labels, is_training=True):
   return path_and_label_dataset
 
 # The metric (evaluation function) for our model. Used to evaluate the perfomance of our classification model -- mostly treated like a blackbox
-# The F1 score is the harmonic mean (average calculated by dividing # of observations by the reciprocal of each number in the series) of Presicion and Recall (see https://en.wikipedia.org/wiki/Confusion_matrix).
+# The F1 score is the harmonic mean (average calculated by dividing # of observations by the reciprocal of each number in the series) of Precision and Recall (see https://en.wikipedia.org/wiki/Confusion_matrix).
 # Precision is the number of true positive results (all predictions correct), divided by the number of all positive results (some predictions correct), including those not identified completely correctly.
 # Recall is the number of true positive results divided by the number of all samples that should have been identified as positive. 
 # This function computes as many F1-scores as the total number of labels (18 in our case, for the number of types), and then averages them to get a Macro F1-score. 
@@ -112,7 +112,7 @@ def macro_f1(y, y_hat, thresh=0.5):
 # Measures the model error on training batches and updates weights accordingly.
 # Must be differentiable to backpropogate error in the neural network and update weights accordingly. (in each forward pass through a network, backpropogation performs a backwards pass while adjusting parameters).
 # However, F1-score is not differentiable and so it cannot be used as a loss function because it needs binary predictions to be measured (0 and 1). We make the F1-score differentiable by computing the number of 
-# true positives, true negatives, false positives, false negatives as a continous sum of likelihood values rather than discrete integer values by snapping inputs above a threshold to 1 and all others to 0. 
+# true positives, true negatives, false positives, false negatives as a continous sum rather than discrete integer values by snapping inputs above a threshold to 1 and all others to 0. 
 # This is accomplished by using probabilities without applying any threshold. 
 # EX1:  
 # If the target is 1 for a movie being Action and the model prediction for Action is 0.8, it will count as:
@@ -127,7 +127,7 @@ def macro_f1(y, y_hat, thresh=0.5):
 # 0.8 x 1 = 0.8 FP (because the target is 0 and the model predicted 1 with 0.8 chance)
 # 0.2 x 1 = 0.2 TN (because the target is 0 and the model predicted 0 with 0.2 chance)
 
-# This version of F1-score a soft-F1-score and it can be used as a loss function. 
+# This version of F1-score is called a soft-F1-score and it can be used as a loss function. 
 # SOURCED FROM: https://github.com/ashrefm/multi-label-soft-f1
 def macro_soft_f1(y, y_hat):
     """Compute the macro soft F1-score as a cost.
